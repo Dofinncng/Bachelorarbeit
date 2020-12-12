@@ -63,5 +63,7 @@ with open("CamCalibrationData_Color", "w") as file:
     np.savetxt(file, dist, delimiter=",")
     file.write("\nnewcameramtx \n")
     np.savetxt(file, newcameramtx, delimiter=",")
+    file.write("\nroi \n")
+    np.savetxt(file, roi, delimiter=",")
     file.close()
 
