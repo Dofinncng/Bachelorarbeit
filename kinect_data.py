@@ -6,10 +6,10 @@ import cv2
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 
-stream = "depth_ali"
+stream = "RGBD"
 
 
-# raw_Depth, raw_IR, raw_Color, undistored_Color, undistored_Depth, undistored_IR, Color_Ali, IR_Ali, plot_data
+# raw_Depth, raw_IR, raw_Color, undistored_Color, undistored_Depth, undistored_IR, Color_Ali, IR_Ali, plot_data, RGBD
 
 
 def color_alignment(kinect_color, mtx, dist, newcameramtx):
@@ -341,6 +341,60 @@ def depth_ali(kinect_depth, mtx, dist, newcameramtx):
         elif key == ord("d"):
             cv2.imwrite("Image_Aligment/depth.png", undistored_depth_frame)
 
+def rgbd(kinect_depth,
+         mtx_IR,
+         dist_IR,
+         newcameramtx_IR,
+         kinect_color,
+         mtx_color,
+         dist_color,
+         newcameramtx_color,
+         transform_mtx,
+         crop_data):
+
+    while True:
+        if kinect_depth.has_new_depth_frame():
+            depth_frame = kinect_depth.get_last_depth_frame()
+            # frameD = kinect_depth._depth_frame_data
+            depth_frame = depth_frame.astype(np.uint8)
+            depth_frame = np.reshape(depth_frame, (424, 512))
+            depth_frame = cv2.applyColorMap(depth_frame, cv2.COLORMAP_JET)
+
+            undistored_depth_frame = cv2.undistort(depth_frame, mtx_IR, dist_IR, None, newcameramtx_IR)
+            undistored_depth_frame = undistored_depth_frame[crop_data[0]: 424 - crop_data[1], crop_data[2]: 512 - crop_data[3]]
+
+        if kinect_color.has_new_color_frame():
+            color_frame = kinect_color.get_last_color_frame()
+
+            color_frame = np.reshape(color_frame, (2073600, 4))
+            color_frame = color_frame[:, 0:3]
+
+            # extract then combine the RBG data
+            color_frame_red = color_frame[:, 0]
+            color_frame_red = np.reshape(color_frame_red, (1080, 1920))
+            color_frame_green = color_frame[:, 1]
+            color_frame_green = np.reshape(color_frame_green, (1080, 1920))
+            color_frame_blue = color_frame[:, 2]
+            color_frame_blue = np.reshape(color_frame_blue, (1080, 1920))
+            full_color_frame = cv2.merge([color_frame_red, color_frame_green, color_frame_blue])
+
+            undistored_full_color_frame = cv2.undistort(full_color_frame, mtx_color, dist_color, None, newcameramtx_color)
+
+            color_image = cv2.warpPerspective(undistored_full_color_frame, transform_mtx, (512, 424))
+            color_image = color_image[crop_data[0]: 424 - crop_data[1], crop_data[2]: 512 - crop_data[3]]
+        try:
+            together = np.concatenate((color_image, undistored_depth_frame), axis=1)
+            cv2.imshow("RGBD Image", together)
+        except UnboundLocalError:
+            pass
+
+        key = cv2.waitKey(1)
+
+        if key == 27:
+            cv2.imwrite("Image_Aligment/RGBD_image.png", together)
+            cv2.destroyAllWindows()
+            break
+
 
 if stream == "raw_Depth":
     raw_depth_stream(PyKinectRuntime.PyKinectRuntime(PyKinectV2.FrameSourceTypes_Depth))
@@ -400,33 +454,37 @@ elif stream == "depth_ali":
         file.close()
     depth_ali(PyKinectRuntime.PyKinectRuntime(PyKinectV2.FrameSourceTypes_Depth), mtx, dist, newcameramtx)
 
-################################yyyyy####xxxxxx
-# fitted_color_image = color_image[0:1080, 270:1750]
-# depth_image  = depth_image[4:424, 2:510]
-# fitted_color_image = color_image
-# fitted_color_image = cv2.resize(fitted_color_image, (508, 420))
+elif stream == "RGBD":
+    with open("CamCalibrationData_IR", "r") as file:
+        mtx_IR = np.loadtxt(file, skiprows=1, max_rows=3, delimiter=",")
+        dist_IR = np.loadtxt(file, skiprows=2, max_rows=1, delimiter=",")
+        newcameramtx_IR = np.loadtxt(file, skiprows=2, max_rows=3, delimiter=",")
+        file.close()
+    with open("CamCalibrationData_Color", "r") as file:
+        mtx_color = np.loadtxt(file, skiprows=1, max_rows=3, delimiter=",")
+        dist_color = np.loadtxt(file, skiprows=2, max_rows=1, delimiter=",")
+        newcameramtx_color = np.loadtxt(file, skiprows=2, max_rows=3, delimiter=",")
+        file.close()
+    with open("Transformmatrix_color_to_infrared", "r") as file:
+        transform_mtx = np.loadtxt(file, skiprows=1, delimiter=",")
+    crop_data = list()
+    with open("Crop_Image_data.txt", "r") as file:
+        lines = file.readlines()
+        for line in lines:
+            try:
+                line = int(line)
+                crop_data.append(line)
+            except ValueError:
+                pass
 
+    rgbd(PyKinectRuntime.PyKinectRuntime(PyKinectV2.FrameSourceTypes_Depth),
+         mtx_IR,
+         dist_IR,
+         newcameramtx_IR,
+         PyKinectRuntime.PyKinectRuntime(PyKinectV2.FrameSourceTypes_Color),
+         mtx_color,
+         dist_color,
+         newcameramtx_color,
+         transform_mtx,
+         crop_data)
 
-# print(depth_image.shape, fitted_color_image.shape)#
-
-# combinded_image = np.concatenate((depth_image,fitted_color_image), axis=1)
-
-# dst = cv2.addWeighted(depth_image, 1, fitted_color_image, 1, 0)
-# cv2.imshow("nebeneinander", combinded_image)
-# cv2.imshow("Ueberlagerung", dst)
-# cv2.waitKey()
-
-# breakpoint()
-
-# SCALE_FACTOR = 0.25
-# fitted_color_image_width, fitted_color_image_height, channels = fitted_color_image.shape
-# if fitted_color_image_width%(1/SCALE_FACTOR) or fitted_color_image_height%(1/SCALE_FACTOR):
-#    print("Fehlermeldung")
-# fitted_color_image = cv2.resize(fitted_color_image,
-#                             (int(fitted_color_image_height * SCALE_FACTOR), int(fitted_color_image_width * SCALE_FACTOR)))
-
-
-# cv2.imshow("Farbbild", fitted_color_image)
-# cv2.waitKey()
-# cv2.imshow("Tiefenbild", depth_image)
-# cv2.waitKey()

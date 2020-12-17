@@ -8,9 +8,34 @@ from matplotlib.ticker import MaxNLocator
 from pykinect2 import PyKinectV2
 from pykinect2 import PyKinectRuntime
 
-LINE_AMOUNT = 30
+import time
+
+LINE_AMOUNT = 20
 kinect_color = PyKinectRuntime.PyKinectRuntime(PyKinectV2.FrameSourceTypes_Color)
 kinect_depth = PyKinectRuntime.PyKinectRuntime(PyKinectV2.FrameSourceTypes_Depth)
+with open("CamCalibrationData_IR", "r") as file:
+    mtx_IR = np.loadtxt(file, skiprows=1, max_rows=3, delimiter=",")
+    dist_IR = np.loadtxt(file, skiprows=2, max_rows=1, delimiter=",")
+    newcameramtx_IR = np.loadtxt(file, skiprows=2, max_rows=3, delimiter=",")
+    file.close()
+with open("CamCalibrationData_Color", "r") as file:
+    mtx_color = np.loadtxt(file, skiprows=1, max_rows=3, delimiter=",")
+    dist_color = np.loadtxt(file, skiprows=2, max_rows=1, delimiter=",")
+    newcameramtx_color = np.loadtxt(file, skiprows=2, max_rows=3, delimiter=",")
+    file.close()
+with open("Transformmatrix_color_to_infrared", "r") as file:
+    transform_mtx = np.loadtxt(file, skiprows=1, delimiter=",")
+crop_data = list()
+with open("Crop_Image_data.txt", "r") as file:
+    lines = file.readlines()
+    for line in lines:
+        try:
+            line = int(line)
+            crop_data.append(line)
+        except ValueError:
+            pass
+
+image_height, image_width = 424 - crop_data[0] - crop_data[1], 512 - crop_data[2] - crop_data[3]
 
 
 class GraphicalUserInterface:
@@ -18,6 +43,7 @@ class GraphicalUserInterface:
     def __init__(self, master):
         master.geometry("1400x700+30+30")
         master.title("Graphical User Interface")
+        root.protocol("WM_DELETE_WINDOW", lambda: root.quit())
 
         # Start Frame
 
@@ -40,8 +66,6 @@ class GraphicalUserInterface:
         self.depth_stream_label.place(relx=0.05, rely=0.2)
         self.depth_stream_label.after(100, self.depth_stream)
 
-        self.width, self.height = 480, 270
-
         # Image Frame
 
         self.image_frame = tk.Frame(master)
@@ -56,6 +80,7 @@ class GraphicalUserInterface:
         self.back_button_image_frame = tk.Button(self.image_frame, text="Back",
                                                      command=lambda: self.image_to_start_frame())
         self.back_button_image_frame.place(relx=0.15, rely=0.05)
+
 
         self.image_panel = tk.Label(self.image_frame)
         self.image_panel.place(x=750, y=550, anchor="sw")
@@ -86,28 +111,6 @@ class GraphicalUserInterface:
 
         ########################################################
 
-        #self.vertical_display = tk.Label(self.image_frame, text=30, bg="red")
-        #self.vertical_display.place(relx=0.1, rely=0.9)
-
-        #self.horizontal_display = tk.Label(self.image_frame, text=30, bg="red")
-        #self.horizontal_display.place(relx=0.1, rely=0.85)
-
-        #self.up_button = tk.Button(master=self.image_frame, text="hoch",
-        #                      command=lambda: self.turn_horizontal(self.horizontal_display, 5))
-        #self.up_button.place(x=300, y=570)
-
-        #self.down_button = tk.Button(master=self.image_frame, text="runter",
-        #                        command=lambda: self.turn_horizontal(self.horizontal_display, -5))
-        #self.down_button.place(x=300, y=620)
-
-        #self.left_button = tk.Button(master=self.image_frame, text="links",
-        #                        command=lambda: self.turn_vertical(self.vertical_display, -5))
-        #self.left_button.place(x=250, y=595)
-
-        #self.right_button = tk.Button(master=self.image_frame, text="rechts",
-        #                         command=lambda: self.turn_vertical(self.vertical_display, 5))
-        #self.right_button.place(x=350, y=595)
-
         # Precise Frame
 
         self.precise_frame = tk.Frame(master)
@@ -121,7 +124,7 @@ class GraphicalUserInterface:
         self.y_value_label.pack()
 
         self.image_panel_precise_frame = tk.Label(self.precise_frame)
-        self.image_panel_precise_frame.place(x=750, y= 550, anchor="sw")
+        self.image_panel_precise_frame.place(x=750, y=550, anchor="sw")
 
         self.back_button_precise_frame = tk.Button(self.precise_frame, text="Back",
                                                    command=lambda: self.precise_to_image_frame())
@@ -140,45 +143,57 @@ class GraphicalUserInterface:
         color_frame_green = np.reshape(color_frame_green, (1080, 1920))
         color_frame_blue = color_frame[:, 2]
         color_frame_blue = np.reshape(color_frame_blue, (1080, 1920))
-        self.full_color_frame = cv2.merge([colour_frame_red, color_frame_green, color_frame_blue])
-        self.full_color_frame = self.full_color_frame[0:1080, 308:1800]
-        self.full_color_frame = cv2.resize(self.full_color_frame, (512, 424))
-        self.full_color_frame = cv2.cvtColor(self.full_color_frame, cv2.COLOR_BGR2RGB)
+        full_color_frame = cv2.merge([colour_frame_red, color_frame_green, color_frame_blue])
+        full_color_frame = cv2.cvtColor(full_color_frame, cv2.COLOR_BGR2RGB)
+        full_color_frame = cv2.undistort(full_color_frame, mtx_color, dist_color, None, newcameramtx_color)
 
+        self.cv2_color_image = cv2.warpPerspective(full_color_frame, transform_mtx, (512, 424))
+        self.cv2_color_image = self.cv2_color_image[crop_data[0]: 424 - crop_data[1], crop_data[2]: 512 - crop_data[3]]
 
-        self.color_image = PIL.Image.fromarray(self.full_color_frame)
+        self.color_image = PIL.Image.fromarray(self.cv2_color_image)
         self.color_image_tk = PIL.ImageTk.PhotoImage(image=self.color_image)
         self.color_stream_label.image_tk = self.color_image_tk
         self.color_stream_label["image"] = self.color_image_tk
+
         self.color_stream_label.after(100, self.color_stream)
+
+
 
     def depth_stream(self):
         depth_frame = kinect_depth.get_last_depth_frame()
         depth_frame = depth_frame.astype(np.uint8)
         depth_frame = np.reshape(depth_frame, (424, 512))
-        depth_frame = cv2.cvtColor(depth_frame, cv2.COLOR_GRAY2RGB)
+        depth_frame = cv2.applyColorMap(depth_frame, cv2.COLORMAP_JET)
 
-        self.depth_image = PIL.Image.fromarray(depth_frame)
+        depth_frame = cv2.undistort(depth_frame, mtx_IR, dist_IR, None, newcameramtx_IR)
+        self.depth_frame = depth_frame[crop_data[0]: 424 - crop_data[1], crop_data[2]: 512 - crop_data[3]]
+
+        self.depth_image = PIL.Image.fromarray(self.depth_frame)
         self.depth_image_tk = PIL.ImageTk.PhotoImage(image=self.depth_image)
         self.depth_stream_label.image_tk = self.depth_image_tk
+
         self.depth_stream_label["image"] = self.depth_image_tk
+
         self.depth_stream_label.after(100, self.depth_stream)
 
     def get_depth_data(self):
         depth_frame = kinect_depth.get_last_depth_frame()
         depth_frame = depth_frame.astype(np.uint8)
         depth_frame = np.reshape(depth_frame, (424, 512))
-        return depth_frame
+        undistored_depth_frame = cv2.undistort(depth_frame, mtx_IR, dist_IR, None, newcameramtx_IR)
+        undistored_depth_frame = undistored_depth_frame[crop_data[0]: 424 - crop_data[1],
+                                 crop_data[2]: 512 - crop_data[3]]
+        return undistored_depth_frame
 
     def get_fig(self, data):
+        print(data)
 
         plot_data = list()
+        limit = 159
+        data[data > limit] = limit
         for y in range(len(data)):
             for x in range(len(data[y])):
-                if 140 < data[y, x] < 205 and 100 < y < 300 and 150 < x < 400:
-                    plot_data.append(np.array([x, 424 - y, 255 - data[y, x]]))
-                else:
-                    plot_data.append(np.array([x, 424 - y, 50]))
+                plot_data.append(np.array([x, image_height - y, 255 - data[y, x]]))
 
         self.plot_data = np.asarray(plot_data)
 
@@ -218,35 +233,35 @@ class GraphicalUserInterface:
         ax.zaxis.set_major_locator(MaxNLocator(5))
 
         fig.tight_layout()
-
         #ax.view_init(90, -90)
         return fig
 
     def get_precise_fig(self, data, x_value, y_value):
 
-        first_point = (x_value / LINE_AMOUNT * 512, y_value / LINE_AMOUNT * 424)
-        second_point = ((x_value + 1) / LINE_AMOUNT * 512, (y_value + 1) / LINE_AMOUNT * 424)
+        first_point = (x_value / LINE_AMOUNT * image_width, y_value / LINE_AMOUNT * image_height)
+        second_point = ((x_value + 1) / LINE_AMOUNT * image_width, (y_value + 1) / LINE_AMOUNT * image_height)
 
         print(first_point)
         print(second_point)
 
         selected_data = list()
-        diselected_data = list()
+        disselected_data = list()
+
         for row in data:
             if first_point[0] <= row[0] <= second_point[0] and first_point[1] <= row[1] <= second_point[1]:
                 selected_data.append(row)
             else:
-                diselected_data.append(row)
+                disselected_data.append(row)
 
         selected_data = np.asarray(selected_data)
-        diselected_data = np.asarray(diselected_data)
+        disselected_data = np.asarray(disselected_data)
 
         print(selected_data)
-        print(diselected_data)
+        print(disselected_data)
 
-        x_diselected = diselected_data[:, 0]
-        y_diselected = diselected_data[:, 1]
-        z_diselected = diselected_data[:, 2]
+        x_diselected = disselected_data[:, 0]
+        y_diselected = disselected_data[:, 1]
+        z_diselected = disselected_data[:, 2]
 
         x_selected = selected_data[:, 0]
         y_selected = selected_data[:, 1]
@@ -270,7 +285,7 @@ class GraphicalUserInterface:
 
         X_plane = np.array([[first_point[0], second_point[0]], [first_point[0], second_point[0]]])
         Y_plane = np.array([[first_point[1], first_point[1]], [second_point[1], second_point[1]]])
-        Z_plane = np.array([[210, 210], [210, 210]])
+        Z_plane = np.array([[300, 300], [300, 300]])
 
         plt.xlabel("X Achse")
         plt.ylabel("Y Achse")
@@ -336,15 +351,20 @@ class GraphicalUserInterface:
     #    display["text"] = display["text"] + value
 
     def start_to_image_frame(self):
+        start_time = time.time()
+
+        # self.depth_stream_label.destroy()
+
         self.start_frame.pack_forget()
 
-        self.fixed_color_image = cv2.cvtColor(self.full_color_frame, cv2.COLOR_BGR2RGB)
+        # self.fixed_color_image = cv2.cvtColor(self.color_image, cv2.COLOR_BGR2RGB)
 
         cluster_color_image = self.draw_cluster_on_image()
         self.image_panel.cluster_color_image = cluster_color_image
         self.image_panel["image"] = cluster_color_image
 
         self.depth_data = self.get_depth_data()
+        print(self.depth_data.shape)
         self.fig = self.get_fig(self.depth_data)
         #fig = self.get_dummy_three_d_image()
         plot_canvas = FigureCanvasTkAgg(self.fig, master=self.image_frame)
@@ -352,8 +372,11 @@ class GraphicalUserInterface:
 
         self.image_frame.pack(expand=True, fill="both")
         self.image_frame.pack_propagate(0)
+        print("Wechseldauer" + str(time.time() - start_time))
 
     def image_to_precise_frame(self):
+
+
         self.image_frame.pack_forget()
 
         self.highlighted_image = self.highlight_location_on_image()
@@ -383,12 +406,12 @@ class GraphicalUserInterface:
         self.image_frame.pack_propagate(0)
 
     def draw_cluster_on_image(self):
-        image = self.fixed_color_image
+        image = self.cv2_color_image
         #image = self.fixed_color_image
 
         #image = cv2.flip(image, 1)
 
-        height, width, channel = image.shape
+        height, width, channel = self.cv2_color_image.shape
 
         line_distance_x = width / LINE_AMOUNT
         line_distance_y = height / LINE_AMOUNT
@@ -399,15 +422,15 @@ class GraphicalUserInterface:
             image = cv2.line(image, (0, int(line * line_distance_y)), (width, int(line * line_distance_y)),
                              (100, 100, 100))
 
-        image_as_array = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        image = PIL.Image.fromarray(image_as_array)
+        # image_as_array = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        image = PIL.Image.fromarray(image)
         image = PIL.ImageTk.PhotoImage(image)
         return image
 
     def highlight_location_on_image(self):
-        image = self.fixed_color_image
+        image = self.cv2_color_image
         #image = cv2.flip(image, 1)
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        # image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         height, width, channels = image.shape
 
         first_point = int((int(self.x_entry_widget.get())) / LINE_AMOUNT * width), \
@@ -417,10 +440,11 @@ class GraphicalUserInterface:
                        int(height - (int(self.y_entry_widget.get())) / LINE_AMOUNT * height)
 
         blurred_image = cv2.GaussianBlur(image, (29, 29), 0)
-        mask = np.zeros((image.shape), dtype=np.uint8)
+        mask = np.zeros(image.shape, dtype=np.uint8)
         mask = cv2.rectangle(mask, first_point, second_point, (255, 255, 255), -1)
 
         image = np.where(mask == np.array([255, 255, 255]), image, blurred_image)
+        image = cv2.rectangle(image, first_point, second_point, (255, 0, 0), 1)
 
         image = PIL.Image.fromarray(image)
         image = PIL.ImageTk.PhotoImage(image)
@@ -475,6 +499,8 @@ class GraphicalUserInterface:
 
     #    ax.view_init(turn_vertical, turn_horizontal)
     #    return fig
+
+
 
 root = tk.Tk()
 GraphicalUserInterface(root)
