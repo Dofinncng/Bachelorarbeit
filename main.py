@@ -2,6 +2,7 @@ import cv2
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 import tkinter as tk
+from tkinter import messagebox
 import numpy as np
 import PIL.Image, PIL.ImageTk
 from matplotlib.ticker import MaxNLocator
@@ -10,7 +11,8 @@ from pykinect2 import PyKinectRuntime
 
 import time
 
-LINE_AMOUNT = 20
+LINE_AMOUNT = 10
+PLANE_DISTANCE = 100
 kinect_color = PyKinectRuntime.PyKinectRuntime(PyKinectV2.FrameSourceTypes_Color)
 kinect_depth = PyKinectRuntime.PyKinectRuntime(PyKinectV2.FrameSourceTypes_Depth)
 with open("CamCalibrationData_IR", "r") as file:
@@ -40,6 +42,9 @@ image_height, image_width = 424 - crop_data[0] - crop_data[1], 512 - crop_data[2
 
 class GraphicalUserInterface:
 
+    """Class for Graphical User Interface. Uses Microsoft xBox Kinect Sensor for acquiring Color and Depth Images.
+    Lays cluster above Image to select a part of the image which is then driven to by robot"""
+
     def __init__(self, master):
         master.geometry("1400x700+30+30")
         master.title("Graphical User Interface")
@@ -57,6 +62,12 @@ class GraphicalUserInterface:
         self.continue_button_start_frame = tk.Button(self.start_frame, text="Take Image and Continue",
                                                      command=lambda: self.start_to_image_frame())
         self.continue_button_start_frame.place(relx=0.85, rely=0.05)
+
+        self.start_frame_shortcut_state = tk.BooleanVar()
+        self.start_frame_shortcut_state.set(False)
+        self.start_frame_shortcut_box = tk.Checkbutton(self.start_frame, text="take shortcut",
+                                                       var=self.start_frame_shortcut_state)
+        self.start_frame_shortcut_box.place(relx=0.85, rely=0.1)
 
         self.color_stream_label = tk.Label(self.start_frame)
         self.color_stream_label.place(relx=0.6, rely=0.2)
@@ -81,6 +92,11 @@ class GraphicalUserInterface:
                                                      command=lambda: self.image_to_start_frame())
         self.back_button_image_frame.place(relx=0.15, rely=0.05)
 
+        self.image_frame_shortcut_state = tk.BooleanVar()
+        self.image_frame_shortcut_state.set(False)
+        self.image_frame_shortcut_box = tk.Checkbutton(self.image_frame, text="take shortcut",
+                                                       var=self.image_frame_shortcut_state)
+        self.image_frame_shortcut_box.place(relx=0.85, rely=0.1)
 
         self.image_panel = tk.Label(self.image_frame)
         self.image_panel.place(x=750, y=550, anchor="sw")
@@ -186,6 +202,7 @@ class GraphicalUserInterface:
         return undistored_depth_frame
 
     def get_fig(self, data):
+        
         print(data)
 
         plot_data = list()
@@ -213,28 +230,71 @@ class GraphicalUserInterface:
         # eventuell noch alle Randpunkte einbeziehen
         #
         #self.plot_data = np.asarray(self.plot_data)
-
         x = self.plot_data[:, 0]
         y = self.plot_data[:, 1]
         z = self.plot_data[:, 2]
-
         fig = plt.figure()
 
-        ax = fig.add_subplot(111, projection="3d")
-        ax.set_zlim(50, 300)
-        plt.xlabel("X Achse")
-        plt.ylabel("Y Achse")
+        if not self.start_frame_shortcut_state.get():
+            ax = fig.add_subplot(111, projection="3d")
+            ax.set_zlim(50, 300)
+            plt.xlabel("X Achse")
+            plt.ylabel("Y Achse")
 
-        surf = ax.plot_trisurf(x, y, z, cmap="plasma", linewidth=0)
-        fig.colorbar(surf)
+            surf = ax.plot_trisurf(x, y, z, cmap="plasma", linewidth=0)
+            fig.colorbar(surf)
 
-        ax.xaxis.set_major_locator(MaxNLocator(5))
-        ax.yaxis.set_major_locator(MaxNLocator(5))
-        ax.zaxis.set_major_locator(MaxNLocator(5))
+            ax.xaxis.set_major_locator(MaxNLocator(5))
+            ax.yaxis.set_major_locator(MaxNLocator(5))
+            ax.zaxis.set_major_locator(MaxNLocator(5))
+
+        elif self.start_frame_shortcut_state.get():
+            ax = plt.axes(projection='3d')
+            ax.scatter(x, y, z, c=z, cmap='plasma', linewidth=0.5, s=0.1)
 
         fig.tight_layout()
+
         #ax.view_init(90, -90)
         return fig
+
+    def calculate_plane_equation(self, data):
+        xs = data[:, 0]
+        ys = data[:, 1]
+        zs = data[:, 2]
+        # do fit
+        tmp_A = []
+        tmp_b = []
+        for i in range(len(xs)):
+            tmp_A.append(np.array([xs[i], ys[i], 1]))
+            tmp_b.append(np.array([zs[i]]))
+
+        b = np.asarray(tmp_b)
+        c = np.asarray(tmp_A)
+        c_transpose = c.T
+
+        # Manual solution
+        fit = np.dot(np.dot(np.linalg.inv(np.dot(c_transpose, c)), c_transpose), b)
+        errors = np.dot((b - c), fit)
+        residual = np.linalg.norm(errors)
+
+        # Or use Scipy
+        # from scipy.linalg import lstsq
+        # fit, residual, rnk, s = lstsq(A, b)
+
+        print("solution:")
+        print("%f x + %f y + %f = z" % (fit[0], fit[1], fit[2] + PLANE_DISTANCE))
+        print("errors:")
+        print(errors)
+        print("residual:")
+        print(residual)
+        new_fit = fit[0], fit[1], fit[2] + PLANE_DISTANCE
+        print(data[0])
+        print(data[-1])
+        x_limit = (data[0][0] - fit[0] * 86)[0], (data[0][1] - fit[1] * 86)[0]
+        y_limit = (data[-1][0] - fit[0] * 86)[0], (data[-1][1] - fit[1] * 86)[0]
+        print(x_limit)
+        print(y_limit)
+        return new_fit, x_limit, y_limit
 
     def get_precise_fig(self, data, x_value, y_value):
 
@@ -256,9 +316,6 @@ class GraphicalUserInterface:
         selected_data = np.asarray(selected_data)
         disselected_data = np.asarray(disselected_data)
 
-        print(selected_data)
-        print(disselected_data)
-
         x_diselected = disselected_data[:, 0]
         y_diselected = disselected_data[:, 1]
         z_diselected = disselected_data[:, 2]
@@ -269,30 +326,56 @@ class GraphicalUserInterface:
 
         fig = plt.figure()
 
-        ax = fig.add_subplot(111, projection="3d")
-        ax.set_zlim(5, 300)
+        if not self.image_frame_shortcut_state.get():
+            ax = fig.add_subplot(111, projection="3d")
+            ax.set_zlim(5, 300)
 
-        surf = ax.plot_trisurf(x_diselected, y_diselected, z_diselected, cmap="plasma", linewidth=0, alpha=0.3)
-        fig.colorbar(surf)
+            surf = ax.plot_trisurf(x_diselected, y_diselected, z_diselected, cmap="plasma", linewidth=0, alpha=0.3)
+            fig.colorbar(surf)
 
-        ax.plot_trisurf(x_selected, y_selected, z_selected, color="red", linewidth=0)
+            ax.plot_trisurf(x_selected, y_selected, z_selected, color="red", linewidth=0)
 
-        ax.xaxis.set_major_locator(MaxNLocator(5))
-        ax.yaxis.set_major_locator(MaxNLocator(5))
-        ax.zaxis.set_major_locator(MaxNLocator(5))
+            ax.xaxis.set_major_locator(MaxNLocator(5))
+            ax.yaxis.set_major_locator(MaxNLocator(5))
+            ax.zaxis.set_major_locator(MaxNLocator(5))
+
+        elif self.image_frame_shortcut_state.get():
+            ax = plt.axes(projection='3d')
+            ax.scatter(x_selected, y_selected, z_selected, c="red", linewidth=0.5, s=0.1)
+            ax.scatter(x_diselected, y_diselected, z_diselected, c=z_diselected,
+                       cmap="plasma", linewidth=0.5, s=0.1, alpha=0.3)
 
         fig.tight_layout()
 
-        X_plane = np.array([[first_point[0], second_point[0]], [first_point[0], second_point[0]]])
-        Y_plane = np.array([[first_point[1], first_point[1]], [second_point[1], second_point[1]]])
-        Z_plane = np.array([[300, 300], [300, 300]])
+        fit, x_limit, y_limit = self.calculate_plane_equation(selected_data)
+        # print(first_point)
+        # print(second_point)
+        # print(x_limit)
+        # print(y_limit)
+
+        X, Y = np.meshgrid(np.arange(x_limit[0], y_limit[0]),
+                           np.arange(y_limit[1], x_limit[1]))
+
+        #X, Y = np.meshgrid(np.arange(first_point[0], second_point[0]),
+        #                   np.arange(first_point[1], second_point[1]))
+
+        Z = np.zeros(X.shape)
+        for r in range(X.shape[0]):
+            for c in range(X.shape[1]):
+                Z[r, c] = fit[0] * X[r, c] + fit[1] * Y[r, c] + fit[2]
+        ax.plot_surface(X, Y, Z, color='green')
+
+        #X_plane = np.array([[first_point[0], second_point[0]], [first_point[0], second_point[0]]])
+        #Y_plane = np.array([[first_point[1], first_point[1]], [second_point[1], second_point[1]]])
+        #Z_plane = np.array([[300, 300], [300, 300]])
 
         plt.xlabel("X Achse")
         plt.ylabel("Y Achse")
 
-        ax.plot_surface(X_plane, Y_plane, Z_plane, color="green")
+        #ax.plot_surface(X_plane, Y_plane, Z_plane, color="green")
 
-        #ax.view_init(90, -90)
+        # ax.view_init(90, -90)
+        # ax.view_init(40, -80)
         return fig
 
 
@@ -353,7 +436,11 @@ class GraphicalUserInterface:
     def start_to_image_frame(self):
         start_time = time.time()
 
+        # print(self.shortcut_box.getvar())
         # self.depth_stream_label.destroy()
+
+        if self.start_frame_shortcut_state.get():
+            self.image_frame_shortcut_state.set(True)
 
         self.start_frame.pack_forget()
 
@@ -375,25 +462,32 @@ class GraphicalUserInterface:
         print("Wechseldauer" + str(time.time() - start_time))
 
     def image_to_precise_frame(self):
+        if not self.x_entry_widget.get().isnumeric():
+            messagebox.showerror("Fehler", "Bitte numerischen ganzzahligen Wert eingeben")
+        elif not self.y_entry_widget.get().isnumeric():
+            messagebox.showerror("Fehler", "Bitte numerischen ganzzahligen Wert eingeben")
+        elif not 0 <= int(self.x_entry_widget.get()) <= LINE_AMOUNT - 1:
+            messagebox.showerror("Fehler", " Bitte Wert zwischen 0 und " + str(LINE_AMOUNT-1) + " eingeben.")
+        elif not 0 <= int(self.y_entry_widget.get()) <= LINE_AMOUNT - 1:
+            messagebox.showerror("Fehler", " Bitte Wert zwischen 0 und " + str(LINE_AMOUNT - 1) + " eingeben.")
+        else:
+            self.image_frame.pack_forget()
 
+            self.highlighted_image = self.highlight_location_on_image()
 
-        self.image_frame.pack_forget()
+            self.precise_fig = self.get_precise_fig(self.plot_data,
+                                                    int(self.x_entry_widget.get()),
+                                                    int(self.y_entry_widget.get()))
 
-        self.highlighted_image = self.highlight_location_on_image()
+            self.precise_plot_canvas = FigureCanvasTkAgg(self.precise_fig, master=self.precise_frame)
+            self.precise_plot_canvas._tkcanvas.place(x=10, y=550, anchor="sw")
 
-        self.precise_fig = self.get_precise_fig(self.plot_data,
-                                                int(self.x_entry_widget.get()),
-                                                int(self.y_entry_widget.get()))
+            self.x_value_label["text"] = self.x_entry_widget.get()
+            self.y_value_label["text"] = self.y_entry_widget.get()
 
-        self.precise_plot_canvas = FigureCanvasTkAgg(self.precise_fig, master=self.precise_frame)
-        self.precise_plot_canvas._tkcanvas.place(x=10, y=550, anchor="sw")
-
-        self.x_value_label["text"] = self.x_entry_widget.get()
-        self.y_value_label["text"] = self.y_entry_widget.get()
-
-        self.image_panel_precise_frame["image"] = self.highlighted_image
-        self.precise_frame.pack(expand=True, fill="both")
-        self.precise_frame.pack_propagate(0)
+            self.image_panel_precise_frame["image"] = self.highlighted_image
+            self.precise_frame.pack(expand=True, fill="both")
+            self.precise_frame.pack_propagate(0)
 
     def image_to_start_frame(self):
         self.image_frame.pack_forget()
