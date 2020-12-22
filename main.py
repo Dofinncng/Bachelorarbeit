@@ -98,8 +98,10 @@ class GraphicalUserInterface:
                                                        var=self.image_frame_shortcut_state)
         self.image_frame_shortcut_box.place(relx=0.85, rely=0.1)
 
-        self.image_panel = tk.Label(self.image_frame)
+        self.image_panel = tk.Canvas(self.image_frame, width=image_width, height=image_height, bg="red")
         self.image_panel.place(x=750, y=550, anchor="sw")
+        #self.image_panel = tk.Label(self.image_frame)
+        #self.image_panel.place(x=750, y=550, anchor="sw")
 
         self.arrow_x_canvas = tk.Canvas(self.image_frame)
         self.arrow_x_canvas.config(width=210, height=30)
@@ -115,7 +117,7 @@ class GraphicalUserInterface:
         self.y_axis_tag = tk.Label(self.image_frame, text="y")
         self.y_axis_tag.place(x=720, y=320)
 
-        self.x_entry_widget = tk.Entry(self.image_frame, bg="yellow", text="10")
+        self.x_entry_widget = tk.Entry(self.image_frame, bg="yellow")
         self.x_entry_widget.place(x=900, y=610)
         self.x_entry_tag = tk.Label(self.image_frame, text="x")
         self.x_entry_tag.place(x=900, y=610, anchor="ne")
@@ -173,6 +175,29 @@ class GraphicalUserInterface:
 
         self.color_stream_label.after(100, self.color_stream)
 
+    def get_color_image(self):
+        color_frame = kinect_color.get_last_color_frame()
+
+        color_frame = np.reshape(color_frame, (2073600, 4))
+        color_frame = color_frame[:, 0:3]
+
+        # extract then combine the RBG data
+        colour_frame_red = color_frame[:, 0]
+        colour_frame_red = np.reshape(colour_frame_red, (1080, 1920))
+        color_frame_green = color_frame[:, 1]
+        color_frame_green = np.reshape(color_frame_green, (1080, 1920))
+        color_frame_blue = color_frame[:, 2]
+        color_frame_blue = np.reshape(color_frame_blue, (1080, 1920))
+        full_color_frame = cv2.merge([colour_frame_red, color_frame_green, color_frame_blue])
+        full_color_frame = cv2.cvtColor(full_color_frame, cv2.COLOR_BGR2RGB)
+        full_color_frame = cv2.undistort(full_color_frame, mtx_color, dist_color, None, newcameramtx_color)
+
+        self.cv2_color_image = cv2.warpPerspective(full_color_frame, transform_mtx, (512, 424))
+        self.cv2_color_image = self.cv2_color_image[crop_data[0]: 424 - crop_data[1], crop_data[2]: 512 - crop_data[3]]
+
+        self.color_image = PIL.Image.fromarray(self.cv2_color_image)
+        color_image_tk = PIL.ImageTk.PhotoImage(image=self.color_image)
+        return color_image_tk
 
 
     def depth_stream(self):
@@ -433,22 +458,43 @@ class GraphicalUserInterface:
     #def turn_horizontal(self, display, value):
     #    display["text"] = display["text"] + value
 
+    def callback(self, event):
+        step_x = image_width/LINE_AMOUNT
+        step_y = image_height/LINE_AMOUNT
+        for i in range(LINE_AMOUNT):
+            if i * step_x < event.x <= i * step_x + step_x:
+                x_value = i
+            if i * step_y < event.y <= i * step_y + step_y:
+                y_value = i
+        self.x_entry_widget.delete(0, tk.END)
+        self.x_entry_widget.insert(0, x_value)
+        self.y_entry_widget.delete(0, tk.END)
+        self.y_entry_widget.insert(0, LINE_AMOUNT - 1 - y_value)
+
     def start_to_image_frame(self):
         start_time = time.time()
-
-        # print(self.shortcut_box.getvar())
-        # self.depth_stream_label.destroy()
 
         if self.start_frame_shortcut_state.get():
             self.image_frame_shortcut_state.set(True)
 
         self.start_frame.pack_forget()
 
-        # self.fixed_color_image = cv2.cvtColor(self.color_image, cv2.COLOR_BGR2RGB)
+        self.image_frame_color_image = self.get_color_image()
+        #image = PIL.Image.open("Beispiel2.jpg")
+        #image = PIL.ImageTk.PhotoImage(image)
 
-        cluster_color_image = self.draw_cluster_on_image()
-        self.image_panel.cluster_color_image = cluster_color_image
-        self.image_panel["image"] = cluster_color_image
+        self.image_panel.create_image(0, 0, image=self.image_frame_color_image, anchor=tk.NW)
+
+        self.image_panel.bind("<Button-1>", self.callback)
+
+        line_distance_x = image_width / LINE_AMOUNT
+        line_distance_y = image_height / LINE_AMOUNT
+
+        for line in range(LINE_AMOUNT):
+            self.image_panel.create_line(line * line_distance_x, 0, line * line_distance_x, image_height,
+                                         width=1, fill="yellow")
+            self.image_panel.create_line(0, line * line_distance_y, image_width, line * line_distance_y,
+                                         width=1, fill="yellow")
 
         self.depth_data = self.get_depth_data()
         print(self.depth_data.shape)
