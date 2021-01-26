@@ -38,9 +38,9 @@ while True:
 
     def click_event(event, x, y, flags, param):
         if event == cv2.EVENT_LBUTTONDOWN:
-            cv2.circle(display_color_image, (x,y), 10, (0, 200, 0), 3)
-            cv2.line(display_color_image, (x - 100, y), (x + 100, y), (0, 200, 0), 1)
-            cv2.line(display_color_image, (x, y - 100), (x, y + 100), (0, 200, 0), 1)
+            cv2.circle(display_color_image, (x, y), 15, (0, 200, 0), 6)
+            cv2.line(display_color_image, (x - 100, y), (x + 100, y), (0, 200, 0), 3)
+            cv2.line(display_color_image, (x, y - 100), (x, y + 100), (0, 200, 0), 3)
             color_points.append((x,y))
 
     cv2.setMouseCallback("display_color_image", click_event)
@@ -69,6 +69,7 @@ together = np.concatenate((display_images_together, images_together), axis=0)
 
 cv2.imwrite("Image_Aligment/Perspective/color_new.png", corrected_color_image)
 cv2.imwrite("Image_Aligment/Perspective/IR_original.png", IR_Image)
+cv2.imwrite("Image_Aligment/Perspective/corrected_images.png", images_together)
 cv2.imwrite("Image_Aligment/Perspective/everything.png", together)
 
 cv2.imshow("Neues Bild", together)

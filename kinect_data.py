@@ -6,7 +6,7 @@ import cv2
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 
-stream = "RGBD"
+stream = "undistored_IR"
 
 
 # raw_Depth, raw_IR, raw_Color, undistored_Color, undistored_Depth, undistored_IR, Color_Ali, IR_Ali, plot_data, RGBD
@@ -191,8 +191,8 @@ def undistored_depth(kinect_depth, mtx, dist, newcameramtx):
             undistored_depth_frame = undistored_depth_frame[55:378, 37:466]
             # undistored_depth_frame = undistored_depth_frame[12:407, 15:498]
 
-            # together = np.concatenate((depth_frame, undistored_depth_frame), axis=1)
-            cv2.imshow('KINECT undistored Depth Stream', undistored_depth_frame)
+            together = np.concatenate((depth_frame, undistored_depth_frame), axis=1)
+            cv2.imshow('KINECT undistored Depth Stream', together)
         key = cv2.waitKey(1)
         if key == 27:
             cv2.destroyAllWindows()

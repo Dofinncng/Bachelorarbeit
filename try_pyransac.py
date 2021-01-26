@@ -12,7 +12,6 @@ def get_dummy_3d_data():
         for x in range(50):
             plot_data.append(np.array([x, y, 0.1 * x + random.uniform(2.7, 3.8) - 0.1 * y]))
 
-
     plot_data = np.asarray(plot_data)
     print(plot_data)
     return plot_data
@@ -63,9 +62,8 @@ def make_plane(data):
     points = data
     plane1 = pyrsc.Plane()
     best_eq, best_inliers = plane1.fit(points, 0.01)
+    print(best_inliers)
     return best_eq
-
-
 
 
 data = get_dummy_3d_data()

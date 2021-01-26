@@ -17,23 +17,25 @@ images = glob.glob('Color_Image/*.png')
 i = 0
 for fname in images:
     img = cv2.imread(fname)
+    # img = cv2.resize(img, (480, 270))
     gray = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
 
     # Find the chess board corners
-    ret, corners = cv2.findChessboardCorners(gray, (8,5),None)
+    ret, corners = cv2.findChessboardCorners(gray, (8, 5),None)
 
     # If found, add object points, image points (after refining them)
 
     if ret == True:
         objpoints.append(objp)
 
-        corners2 = cv2.cornerSubPix(gray,corners,(11,11),(-1,-1),criteria)
+        corners2 = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
         imgpoints.append(corners2)
 
         # Draw and display the corners
-        img = cv2.drawChessboardCorners(img, (8,5), corners2,ret)
+        img = cv2.drawChessboardCorners(img, (8, 5), corners2, ret)
         cv2.imwrite("Color_Image/Checkerboard_Image/Image" + str(i) + ".png", img)
-        cv2.waitKey(1)
+        cv2.imshow("Images", img)
+        cv2.waitKey(1000)
         i = i + 1
 
 

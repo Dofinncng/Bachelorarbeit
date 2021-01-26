@@ -8,11 +8,13 @@ import PIL.Image, PIL.ImageTk
 from matplotlib.ticker import MaxNLocator
 from pykinect2 import PyKinectV2
 from pykinect2 import PyKinectRuntime
-
+import math
 import time
 
 LINE_AMOUNT = 10
 PLANE_DISTANCE = 100
+PLANE_ERROR_LIMIT = 90000
+PLANE_ERROR_AMOUNT = 10
 kinect_color = PyKinectRuntime.PyKinectRuntime(PyKinectV2.FrameSourceTypes_Color)
 kinect_depth = PyKinectRuntime.PyKinectRuntime(PyKinectV2.FrameSourceTypes_Depth)
 with open("CamCalibrationData_IR", "r") as file:
@@ -46,7 +48,7 @@ class GraphicalUserInterface:
     Lays cluster above Image to select a part of the image which is then driven to by robot"""
 
     def __init__(self, master):
-        master.geometry("1400x700+30+30")
+        master.geometry("1300x600+30+30")
         master.title("Graphical User Interface")
         root.protocol("WM_DELETE_WINDOW", lambda: root.quit())
 
@@ -67,7 +69,7 @@ class GraphicalUserInterface:
         self.start_frame_shortcut_state.set(False)
         self.start_frame_shortcut_box = tk.Checkbutton(self.start_frame, text="take shortcut",
                                                        var=self.start_frame_shortcut_state)
-        self.start_frame_shortcut_box.place(relx=0.85, rely=0.1)
+        self.start_frame_shortcut_box.place(relx=0.75, rely=0.05)
 
         self.color_stream_label = tk.Label(self.start_frame)
         self.color_stream_label.place(relx=0.6, rely=0.2)
@@ -96,9 +98,9 @@ class GraphicalUserInterface:
         self.image_frame_shortcut_state.set(False)
         self.image_frame_shortcut_box = tk.Checkbutton(self.image_frame, text="take shortcut",
                                                        var=self.image_frame_shortcut_state)
-        self.image_frame_shortcut_box.place(relx=0.85, rely=0.1)
+        self.image_frame_shortcut_box.place(relx=0.75, rely=0.05)
 
-        self.image_panel = tk.Canvas(self.image_frame, width=image_width, height=image_height, bg="red")
+        self.image_panel = tk.Canvas(self.image_frame, width=image_width, height=image_height)
         self.image_panel.place(x=750, y=550, anchor="sw")
         #self.image_panel = tk.Label(self.image_frame)
         #self.image_panel.place(x=750, y=550, anchor="sw")
@@ -118,14 +120,14 @@ class GraphicalUserInterface:
         self.y_axis_tag.place(x=720, y=320)
 
         self.x_entry_widget = tk.Entry(self.image_frame, bg="yellow")
-        self.x_entry_widget.place(x=900, y=610)
+        self.x_entry_widget.place(x=900, y=100)
         self.x_entry_tag = tk.Label(self.image_frame, text="x")
-        self.x_entry_tag.place(x=900, y=610, anchor="ne")
+        self.x_entry_tag.place(x=900, y=100, anchor="ne")
 
         self.y_entry_widget = tk.Entry(self.image_frame, bg="yellow")
-        self.y_entry_widget.place(x=900, y=630)
+        self.y_entry_widget.place(x=900, y=130)
         self.y_entry_tag = tk.Label(self.image_frame, text="y")
-        self.y_entry_tag.place(x=900, y=630, anchor="ne")
+        self.y_entry_tag.place(x=900, y=130, anchor="ne")
 
         ########################################################
 
@@ -147,6 +149,12 @@ class GraphicalUserInterface:
         self.back_button_precise_frame = tk.Button(self.precise_frame, text="Back",
                                                    command=lambda: self.precise_to_image_frame())
         self.back_button_precise_frame.place(relx=0.15, rely=0.05)
+
+        self.center_point_label = tk.Label(self.precise_frame, bg="red", text="Mittelpunkt")
+        self.center_point_label.place(x=900, y=100)
+
+        self.plane_equation_label = tk.Label(self.precise_frame, bg="red", text="Ebenengleichung")
+        self.plane_equation_label.place(x=900, y=130)
 
     def color_stream(self):
         color_frame = kinect_color.get_last_color_frame()
@@ -235,7 +243,7 @@ class GraphicalUserInterface:
         data[data > limit] = limit
         for y in range(len(data)):
             for x in range(len(data[y])):
-                plot_data.append(np.array([x, image_height - y, 255 - data[y, x]]))
+                plot_data.append(np.array([x, image_height - y, 255 - data[y, x] - 96]))
 
         self.plot_data = np.asarray(plot_data)
 
@@ -262,7 +270,6 @@ class GraphicalUserInterface:
 
         if not self.start_frame_shortcut_state.get():
             ax = fig.add_subplot(111, projection="3d")
-            ax.set_zlim(50, 300)
             plt.xlabel("X Achse")
             plt.ylabel("Y Achse")
 
@@ -276,7 +283,7 @@ class GraphicalUserInterface:
         elif self.start_frame_shortcut_state.get():
             ax = plt.axes(projection='3d')
             ax.scatter(x, y, z, c=z, cmap='plasma', linewidth=0.5, s=0.1)
-
+        ax.set_zlim(0, 500)
         fig.tight_layout()
 
         #ax.view_init(90, -90)
@@ -307,7 +314,7 @@ class GraphicalUserInterface:
         # fit, residual, rnk, s = lstsq(A, b)
 
         print("solution:")
-        print("%f x + %f y + %f = z" % (fit[0], fit[1], fit[2] + PLANE_DISTANCE))
+        print("%f x + %f y + %f = z" % (fit[0], fit[1], fit[2] + PLANE_DISTANCE - 255))
         print("errors:")
         print(errors)
         print("residual:")
@@ -315,11 +322,24 @@ class GraphicalUserInterface:
         new_fit = fit[0], fit[1], fit[2] + PLANE_DISTANCE
         print(data[0])
         print(data[-1])
-        x_limit = (data[0][0] - fit[0] * 86)[0], (data[0][1] - fit[1] * 86)[0]
-        y_limit = (data[-1][0] - fit[0] * 86)[0], (data[-1][1] - fit[1] * 86)[0]
+        print("gap")
+        gap = PLANE_DISTANCE / math.sqrt(fit[0]**2 + fit[1]**2 + 1)
+        print(gap)
+        x_limit = (data[0][0] - fit[0] * gap)[0], (data[0][1] - fit[1] * gap)[0]
+        y_limit = (data[-1][0] - fit[0] * gap)[0], (data[-1][1] - fit[1] * gap)[0]
         print(x_limit)
         print(y_limit)
-        return new_fit, x_limit, y_limit
+
+        # calculate center
+        x_center = x_limit[0] + (y_limit[0] - x_limit[0])/2
+        y_center = y_limit[1] + (x_limit[1] - y_limit[1])/2
+        print(fit)
+        print(x_center)
+        print(y_center)
+        z_center = fit[0]*x_center + fit[1]*y_center + fit[2] + PLANE_DISTANCE
+        center = x_center, y_center, z_center
+
+        return new_fit, x_limit, y_limit, errors, center
 
     def get_precise_fig(self, data, x_value, y_value):
 
@@ -353,7 +373,6 @@ class GraphicalUserInterface:
 
         if not self.image_frame_shortcut_state.get():
             ax = fig.add_subplot(111, projection="3d")
-            ax.set_zlim(5, 300)
 
             surf = ax.plot_trisurf(x_diselected, y_diselected, z_diselected, cmap="plasma", linewidth=0, alpha=0.3)
             fig.colorbar(surf)
@@ -372,7 +391,7 @@ class GraphicalUserInterface:
 
         fig.tight_layout()
 
-        fit, x_limit, y_limit = self.calculate_plane_equation(selected_data)
+        fit, x_limit, y_limit, errors, center = self.calculate_plane_equation(selected_data)
         # print(first_point)
         # print(second_point)
         # print(x_limit)
@@ -389,6 +408,8 @@ class GraphicalUserInterface:
             for c in range(X.shape[1]):
                 Z[r, c] = fit[0] * X[r, c] + fit[1] * Y[r, c] + fit[2]
         ax.plot_surface(X, Y, Z, color='green')
+        ax.scatter(center[0], center[1], center[2], c="red", s=10)
+        ax.set_zlim(0, 500)
 
         #X_plane = np.array([[first_point[0], second_point[0]], [first_point[0], second_point[0]]])
         #Y_plane = np.array([[first_point[1], first_point[1]], [second_point[1], second_point[1]]])
@@ -401,7 +422,7 @@ class GraphicalUserInterface:
 
         # ax.view_init(90, -90)
         # ax.view_init(40, -80)
-        return fig
+        return fig, fit, errors, center
 
 
 
@@ -508,6 +529,7 @@ class GraphicalUserInterface:
         print("Wechseldauer" + str(time.time() - start_time))
 
     def image_to_precise_frame(self):
+
         if not self.x_entry_widget.get().isnumeric():
             messagebox.showerror("Fehler", "Bitte numerischen ganzzahligen Wert eingeben")
         elif not self.y_entry_widget.get().isnumeric():
@@ -517,23 +539,34 @@ class GraphicalUserInterface:
         elif not 0 <= int(self.y_entry_widget.get()) <= LINE_AMOUNT - 1:
             messagebox.showerror("Fehler", " Bitte Wert zwischen 0 und " + str(LINE_AMOUNT - 1) + " eingeben.")
         else:
-            self.image_frame.pack_forget()
+            self.precise_fig, self.fit, errors, center = self.get_precise_fig(self.plot_data,
+                                                                      int(self.x_entry_widget.get()),
+                                                                      int(self.y_entry_widget.get()))
+            error_amount = 0
+            for error in errors:
+                if abs(error[0]) > PLANE_ERROR_LIMIT:
+                    error_amount = error_amount + 1
+            if error_amount > PLANE_ERROR_AMOUNT:
+                messagebox.showerror("Fehler", "Für diesen Bildbereich konnte keine vailde Ebene geunden werden")
+            else:
+                self.image_frame.pack_forget()
 
-            self.highlighted_image = self.highlight_location_on_image()
+                self.highlighted_image = self.highlight_location_on_image()
 
-            self.precise_fig = self.get_precise_fig(self.plot_data,
-                                                    int(self.x_entry_widget.get()),
-                                                    int(self.y_entry_widget.get()))
 
-            self.precise_plot_canvas = FigureCanvasTkAgg(self.precise_fig, master=self.precise_frame)
-            self.precise_plot_canvas._tkcanvas.place(x=10, y=550, anchor="sw")
 
-            self.x_value_label["text"] = self.x_entry_widget.get()
-            self.y_value_label["text"] = self.y_entry_widget.get()
+                self.precise_plot_canvas = FigureCanvasTkAgg(self.precise_fig, master=self.precise_frame)
+                self.precise_plot_canvas._tkcanvas.place(x=10, y=550, anchor="sw")
 
-            self.image_panel_precise_frame["image"] = self.highlighted_image
-            self.precise_frame.pack(expand=True, fill="both")
-            self.precise_frame.pack_propagate(0)
+                self.x_value_label["text"] = self.x_entry_widget.get()
+                self.y_value_label["text"] = self.y_entry_widget.get()
+
+                self.plane_equation_label["text"] = "%f x + %f y + %f = z" % (self.fit[0], self.fit[1], self.fit[2])
+                self.center_point_label["text"] = "(x = %f, y = %f, z= %f)" % center
+
+                self.image_panel_precise_frame["image"] = self.highlighted_image
+                self.precise_frame.pack(expand=True, fill="both")
+                self.precise_frame.pack_propagate(0)
 
     def image_to_start_frame(self):
         self.image_frame.pack_forget()
